@@ -12,22 +12,23 @@ void invalid_syntax() {
     printf("\ttouch <file name> - Create a new empty file with the specified name\n");
 }
 
-int check_command(char* root_command_name, int number_of_arguments, char** command_words) {
-    int i;
-    for (i = 0; *(command_words + i); i++) {
-        char* word = *(command_words + i);
-        if (i == 0) {
-            if (strcmp(word, root_command_name) != 0) {
-                return 0;
-            }
+int check_command(char* root_command_name, int intended_number_of_arguments, char** command_words) {
+    int number_of_arguments = 0;
+    for (int i = 0; i < 10; i++) {
+        if (command_words[i] == NULL) {
+            break;
+        }
+        number_of_arguments++;
+    }
+    number_of_arguments -= 1; // not counting the "root command" ie "cd"
+    if (strcmp(command_words[0], root_command_name) == 0) {
+        if (number_of_arguments == intended_number_of_arguments) {
+            return 1;
+        } else {
+            invalid_syntax();
         }
     }
-    if (i == number_of_arguments) {
-        return 1;
-    } else {
-        invalid_syntax();
-        return 0;
-    }
+    return 0;
 }
 
 void emulate_shell(struct virtual_file_system* virtualFileSystem) {
@@ -40,13 +41,13 @@ void emulate_shell(struct virtual_file_system* virtualFileSystem) {
         char** command_words = str_split(command_sentence, ' ');
 
         if (check_command("cd", 1, command_words)) {
-            change_directory(virtualFileSystem, "test");
+            change_directory(virtualFileSystem, command_words[1]);
         } else if (check_command("ls", 0, command_words)) {
             list_directory(virtualFileSystem);
         } else if (check_command("mkdir", 1, command_words)) {
-            make_directory(virtualFileSystem, "test");
+            make_directory(virtualFileSystem, command_words[1]);
         } else if (check_command("touch", 1, command_words)) {
-            touch_file(virtualFileSystem, "test");
+            touch_file(virtualFileSystem, command_words[1]);
         } else {
 //            invalid_syntax();
         }
