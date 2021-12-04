@@ -2,7 +2,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include "util/toolkit.h"
-#include "toolkit.c"
 #include "virtual_file_system.h"
 
 void invalid_syntax() {
