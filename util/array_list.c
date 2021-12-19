@@ -22,7 +22,7 @@ void array_list_add_to_end(struct arraylist* list, void* item) {
         list->data = realloc(list->data, resize_amount * list->data_type_size);
     }
 
-    list->data[list->number_of_items] = item; // important: idk if this is copying or doing it correctly?
+    list->data[list->number_of_items] = item; // NOTE: nothing being copied here
     list->number_of_items += 1;
 }
 

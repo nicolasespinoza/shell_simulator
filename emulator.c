@@ -1,72 +1,298 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include "util/toolkit.h"
-#include "virtual_file_system.h"
+#include "util/array_list.h"
+#include "emulator.h"
 
-void invalid_syntax() {
-    printf("Invalid syntax. Available commands:\n");
-    printf("\texit - Exit the program\n");
-    printf("\tcd <directory name> - Change to a specified directory\n");
-    printf("\tls - List the contents of the current working directory\n");
-    printf("\tmkdir <directory name> - Create a new directory with the specified name\n");
-    printf("\ttouch <file name> - Create a new empty file with the specified name\n");
+// TODO: pretty sure you need to add more checks about whether something is a directory or a file
+
+struct emulator* emulator_object_create() {
+    struct emulator* emulator = malloc(sizeof(struct emulator*));
+    emulator->inodes_list = malloc(sizeof(struct arraylist)); // ABSOLUTELY NECESSARY
+    emulator->file_system_directory = NULL;
+    emulator->total_supported_nodes = 0;
+    emulator->current_directory_inode_index = NULL;
+    return emulator;
 }
 
-int check_command(char* root_command_name, int intended_number_of_arguments, char** command_words) {
-    int number_of_arguments = 0;
-    for (int i = 0; i < 10; i++) {
-        if (command_words[i] == NULL) {
-            break;
-        }
-        number_of_arguments++;
+// TODO: make some cleanup function free this memory
+struct file_node* create_file_node(char* file_name, char* index) {
+    struct file_node *file_node = malloc(sizeof(struct file_node));
+    file_node->file_name = strdup(file_name);
+    file_node->index = strdup(index);
+    return file_node;
+}
+
+struct arraylist* get_directory_contents(struct emulator* emulator, char* inode_index) {
+    // do some sort of checking to make sure the index passed is for a directory?
+
+    struct arraylist* directory_contents = array_list_new(sizeof(struct file_node));
+
+    char inode_file_path[50];
+    strcat(inode_file_path, emulator->file_system_directory);
+    strcat(inode_file_path, "/");
+    strcat(inode_file_path, inode_index);
+
+    FILE* inode_file = fopen(inode_file_path, "r");
+
+    char* line_buffer = NULL;
+    size_t line_buffer_size = 50;
+
+    while (getline(&line_buffer, &line_buffer_size, inode_file) > 0) {
+        line_buffer[strcspn(line_buffer, "\n")] = 0; // remove trailing newline character
+
+        struct arraylist* split_data = split(line_buffer, " ");
+        char* current_file_index = array_list_get_item(split_data, 0);
+        char* current_file_name = array_list_get_item(split_data, 1);
+
+        array_list_add_to_end(directory_contents, create_file_node(current_file_name, current_file_index));
     }
-    number_of_arguments -= 1; // not counting the "root command" ie "cd"
-    if (strcmp(command_words[0], root_command_name) == 0) {
-        if (number_of_arguments == intended_number_of_arguments) {
+
+    free(line_buffer);
+    fclose(inode_file);
+
+    return directory_contents;
+}
+
+char* file_name_to_index_from_current_directory(struct emulator* emulator, char* file_name) {
+    struct arraylist* directory_contents = get_directory_contents(emulator, emulator->current_directory_inode_index);
+
+    for (int i = 0; i < directory_contents->number_of_items; i++) {
+        struct file_node* file_node = array_list_get_item(directory_contents, i);
+//        printf("File name: %s\n")
+        if (strcmp(file_node->file_name, file_name) == 0) {
+            return file_node->index;
+        }
+    }
+    return "-1";
+}
+
+int file_exists(struct emulator* emulator, char* file_name) {
+    char* if_existing_file_index = file_name_to_index_from_current_directory(emulator, file_name);
+    return strcmp(if_existing_file_index, "-1") != 0;
+}
+
+struct arraylist* get_all_currently_used_inode_indexes(struct emulator* emulator) {
+    struct arraylist* currently_used_inode_indexes = array_list_new(sizeof(char*));
+    struct arraylist* inodes_list = emulator->inodes_list;
+
+    for (int i = 0; i < inodes_list->number_of_items; i++) {
+        struct inode* node = array_list_get_item(emulator->inodes_list, i);
+        array_list_add_to_end(currently_used_inode_indexes, node->index);
+    }
+
+    return currently_used_inode_indexes;
+}
+
+int list_contains_str(struct arraylist* list, char* string) {
+    for (int i = 0; i < list->number_of_items; i++) {
+        char* item = array_list_get_item(list, i);
+        if (strcmp(item, string) == 0) {
             return 1;
-        } else {
-            invalid_syntax();
         }
     }
     return 0;
 }
 
-void emulate_shell(struct virtual_file_system* virtualFileSystem) {
-    char* command_sentence = "stub"; // a "command sentence" is "cd virtual_file_system" for example
+char* get_available_inode_index(struct emulator* emulator, char* type) {
+    struct arraylist* inodes_list = emulator->inodes_list;
+    for (int i = 0; i < inodes_list->number_of_items; i++) {
+        struct inode* node = array_list_get_item(inodes_list, i);
+        if (strcmp(node->type, "N") == 0) {
+            node->type = type; // previously deleted inode will not be used
+            return node->index;
+        }
+    }
 
-    while (strcmp(command_sentence, "exit") != 0) {
-        printf("emulator $ ");
+    struct arraylist* currently_used_inode_indexes = get_all_currently_used_inode_indexes(emulator);
+    for (int i = 0; i < emulator->total_supported_nodes + 1; i++) {
+        char index_char[20];
+        sprintf(index_char, "%d", i);
 
-        command_sentence = get_line();
-        char** command_words = str_split(command_sentence, ' ');
+        if (!list_contains_str(currently_used_inode_indexes, index_char)) {
+            return strdup(index_char);
+        }
+    }
+    printf("operation failed: max inode limit reached\n");
+    return "-1";
+}
 
-        if (check_command("cd", 1, command_words)) {
-            change_directory(virtualFileSystem, command_words[1]);
-        } else if (check_command("ls", 0, command_words)) {
-            list_directory(virtualFileSystem);
-        } else if (check_command("mkdir", 1, command_words)) {
-            make_directory(virtualFileSystem, command_words[1]);
-        } else if (check_command("touch", 1, command_words)) {
-            touch_file(virtualFileSystem, command_words[1]);
+void append_to_directory_data(struct emulator* emulator, char* index, char* file_name) {
+    char directory_file_path[50] = "";
+    strcat(directory_file_path, emulator->file_system_directory);
+    strcat(directory_file_path, "/");
+    strcat(directory_file_path, emulator->current_directory_inode_index);
+
+    char inode_string[50] = "";
+    strcat(inode_string, index);
+    strcat(inode_string, " ");
+    strcat(inode_string, file_name);
+    strcat(inode_string, "\n");
+
+    FILE* directory_data = fopen(directory_file_path, "a");
+    fwrite(inode_string, 1, strlen(inode_string), directory_data);
+    fclose(directory_data);
+}
+
+void append_inodes_list(struct emulator* emulator, char* index, char* type) {
+    char inodes_list_file_name[50] = "";
+    strcat(inodes_list_file_name, emulator->file_system_directory);
+    strcat(inodes_list_file_name, "/");
+    strcat(inodes_list_file_name, "inodes_list");
+
+    char inode_string[50] = "";
+    strcat(inode_string, index);
+    strcat(inode_string, " ");
+    strcat(inode_string, type);
+    strcat(inode_string, "\n");
+
+    FILE* inodes_list_file = fopen(inodes_list_file_name, "a");
+    fwrite(inode_string, 1, strlen(inode_string), inodes_list_file);
+    fclose(inodes_list_file);
+}
+
+void create_data_file(struct emulator* emulator, char* index, char* type, char* if_file_name) {
+    char new_data_file_oath[50] = "";
+    strcat(new_data_file_oath, emulator->file_system_directory);
+    strcat(new_data_file_oath, "/");
+    strcat(new_data_file_oath, index);
+
+    FILE* new_data_file = fopen(new_data_file_oath, "wb");
+
+    if (strcmp(type, "f") == 0) {
+        fwrite(if_file_name, 1, strlen(if_file_name), new_data_file);
+    } else if (strcmp(type, "d") == 0) {
+        char directory_local[50] = "";
+        strcat(directory_local, index);
+        strcat(directory_local, " .\n");
+
+        char directory_above[50] = "";
+        strcat(directory_above, emulator->current_directory_inode_index);
+        strcat(directory_above, " ..\n");
+
+        fwrite(directory_local, 1, strlen(directory_local), new_data_file);
+        fwrite(directory_above, 1, strlen(directory_above), new_data_file);
+    }
+
+    fclose(new_data_file);
+}
+
+void change_directory(struct emulator* emulator, char* to_directory_name) {
+    char* to_directory_index = file_name_to_index_from_current_directory(emulator, to_directory_name);
+
+    if (strcmp(to_directory_index, "-1") == 0) {
+        printf("cd: no such file or directory: %s\n", to_directory_name);
+        return;
+    }
+
+    // TODO: can currently cd into a file (This hsould not be possible)
+
+    emulator->current_directory_inode_index = to_directory_index;
+}
+
+void list_directory(struct emulator* emulator) {
+    // TODO: this is not accurate for listing the CORREct names of files (direcotires works fine)
+    struct arraylist* current_directory_contents =
+            get_directory_contents(emulator, emulator->current_directory_inode_index);
+    for (int i = 0; i < current_directory_contents->number_of_items; i++) {
+        struct file_node* file_node = array_list_get_item(current_directory_contents, i);
+        printf("%s %s\n", file_node->index, file_node->file_name);
+    }
+    array_list_cleanup(current_directory_contents);
+}
+
+void create_directory(struct emulator* emulator, char* file_name) {
+    if (file_exists(emulator, file_name)) {
+        printf("mkdir: %s: File exists\n", file_name);
+        return;
+    }
+
+    char* next_available_inode_index = get_available_inode_index(emulator, "d");
+    if (strcmp(next_available_inode_index, "-1") == 0) {
+        return;
+    }
+
+    append_to_directory_data(emulator, next_available_inode_index, file_name);
+    append_inodes_list(emulator, next_available_inode_index, "d");
+    create_data_file(emulator, next_available_inode_index, "d", NULL);
+}
+
+void touch_file(struct emulator* emulator, char* file_name) {
+    if (file_exists(emulator, file_name)) {
+        return;
+    }
+
+    char* next_available_inode_index = get_available_inode_index(emulator, "f");
+    if (strcmp(next_available_inode_index, "-1") == 0) {
+        return;
+    }
+
+    append_to_directory_data(emulator, next_available_inode_index, file_name); // adds to current directory file
+    append_inodes_list(emulator, next_available_inode_index, "f");
+    create_data_file(emulator, next_available_inode_index, "f", file_name);
+}
+
+void remove_directory(struct emulator* emulator, char* file_name) {
+    if (!file_exists(emulator, file_name)) {
+        printf("rm: %s: No such file or director", file_name);
+        return;
+    }
+
+    // remove the file
+
+}
+
+void invalid_syntax(char* root_command_name) {
+//    if (strcmp(root_command_name, "cd") == 0) {
+//
+//    } else if (strcmp(root_command_name, "mkdir") == 0) {
+//
+//    } else if (strcmp(root_command_name, "touch") == 0) {
+//
+//    } else if (strcmp(root_command_name, "rm") == 0) {
+//
+//    }
+    printf("Invalid syntax\n");
+}
+
+int check_command(struct arraylist* command_words, char* root_command_name, int intended_number_of_arguments) {
+    if (strcmp(root_command_name, (char*) array_list_get_item(command_words, 0)) == 0) {
+        if ((command_words->number_of_items - 1) == intended_number_of_arguments) {
+            return 1;
+        } else {
+            invalid_syntax(root_command_name);
+        }
+    }
+    return 0;
+}
+
+void emulate_shell(struct emulator* emulator) {
+
+    char command_sentence[100] = ""; // a "command sentence" is "cd virtual_file_system" for example
+
+    while (strcmp(command_sentence, "exit") != 0) { // TODO: also support EOF / CtrlD or smth like that
+        printf("cpmustang21@unix1:~ $ ");
+        fflush(stdout);
+
+        fgets(command_sentence, 100, stdin);
+        command_sentence[strcspn(command_sentence, "\n")] = 0;
+        struct arraylist* command_words = split(command_sentence, " ");
+
+        if (check_command(command_words, "cd", 1)) {
+            change_directory(emulator, (char*) array_list_get_item(command_words, 1));
+        } else if (check_command(command_words, "ls", 0)) {
+            list_directory(emulator);
+        } else if (check_command(command_words, "mkdir", 1)) {
+            create_directory(emulator, (char*) array_list_get_item(command_words, 1));
+        } else if (check_command(command_words, "touch", 1)) {
+            touch_file(emulator, (char *) array_list_get_item(command_words, 1));
+        } else if (check_command(command_words, "rm", 1)) {
+            remove_directory(emulator, (char*) array_list_get_item(command_words, 1));
         } else {
 //            invalid_syntax();
         }
-    }
-}
-
-void configure_virtual_file_system(struct virtual_file_system* virtualFileSystem, int number_of_arguments,
-                                   char* arguments[]) {
-    if (number_of_arguments == 3) {
-        int total_supported_nodes = atoi(arguments[1]);
-        char* starting_directory_name = arguments[2];
-
-        virtualFileSystem->current_directory = starting_directory_name;
-        virtualFileSystem->total_supported_nodes = total_supported_nodes;
-
-        parse_files_from_directory(virtualFileSystem, starting_directory_name);
-    } else {
-        printf("Incorrect syntax.\nFormat: fs_simulator <number of inodes> <starting directory name>\n");
-        exit(1);
+        array_list_cleanup(command_words);
     }
 }

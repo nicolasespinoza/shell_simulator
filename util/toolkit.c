@@ -1,71 +1,53 @@
-#include <assert.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include "toolkit.h"
+#include "array_list.h"
 
-char** str_split(char* a_str, const char a_delim) {
-    char** result = 0;
-    size_t count = 0;
-    char* tmp = a_str;
-    char* last_delim = 0;
-    char delim[2];
-    delim[0] = a_delim;
-    delim[1] = 0;
+struct arraylist* split(char* string, char* delimiter) {
+    struct arraylist* split_words = array_list_new(sizeof(char*));
 
-    /* Count how many elements will be extracted. */
-    while (*tmp)
-    {
-        if (a_delim == *tmp)
-        {
-            count++;
-            last_delim = tmp;
-        }
-        tmp++;
+    char* string_copy = strdup(string); // duplicates string dynamically
+    char* start = string_copy;
+    char* found = NULL;
+    while ((found = strsep(&string_copy, delimiter)) != NULL) {
+        array_list_add_to_end(split_words, strdup(found)); // NOTE: found uses strdup here
     }
+    free(start);
+    free(found);
 
-    /* Add space for trailing token. */
-    count += last_delim < (a_str + strlen(a_str) - 1);
-
-    /* Add space for terminating null string so caller
-       knows where the list of returned strings ends. */
-    count++;
-
-    result = malloc(sizeof(char*) * count);
-
-    if (result)
-    {
-        size_t idx  = 0;
-        char* token = strtok(a_str, delim);
-
-        while (token)
-        {
-            assert(idx < count);
-            *(result + idx++) = strdup(token);
-            token = strtok(0, delim);
-        }
-        assert(idx == count - 1);
-        *(result + idx) = 0;
-    }
-
-    return result;
+    return split_words;
 }
 
-char* get_line() {
-    char *buffer;
-    size_t buffer_size = 32;
+int string_to_int(char* value) {
+    char* value_copy = strdup(value);
 
-    buffer = (char *) malloc(buffer_size * sizeof(char));
-    if (buffer == NULL)
-    {
-        perror("Unable to allocate buffer");
-        exit(1);
+    if (strcmp(value, "0") == 0) {
+        free(value_copy);
+        return 0;
     }
 
-    getline(&buffer, &buffer_size, stdin);
+    char* filler;
+    long converted = strtol(value_copy, &filler, 10);
 
-    buffer[strcspn(buffer, "\n")] = 0;
+    if (converted == 0) {
+        printf("[%s] is not a valid integer, exiting", value);
+        free(value_copy);
+        exit(-1);
+    }
 
-    return buffer;
+    free(value_copy);
+    return converted;
+}
+
+char* validate_file_exists(char* file_name) {
+    FILE* file = fopen(file_name, "r");
+    if (file != NULL) {
+        fclose(file);
+        return file_name;
+    } else {
+        printf("[%s] file could not be found, exiting\n", file_name);
+        exit(-1);
+    }
 }

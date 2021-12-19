@@ -1,2 +1,9 @@
-void emulate_shell(struct virtual_file_system* virtualFileSystem);
-void configure_virtual_file_system(struct virtual_file_system* virtualFileSystem, int number_of_arguments, char* arguments[]);
+struct emulator {
+    char* current_directory_inode_index;
+    char* file_system_directory;
+    int total_supported_nodes;
+    struct arraylist* inodes_list;
+};
+
+struct emulator* emulator_object_create();
+void emulate_shell(struct emulator* emulator);
