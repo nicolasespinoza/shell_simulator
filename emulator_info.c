@@ -116,7 +116,9 @@ struct arraylist* get_all_currently_used_inode_indexes(struct emulator_info* emu
 
     for (int i = 0; i < inodes_list->number_of_items; i++) {
         struct inode* node = array_list_get_item(emulator->inodes_list, i);
-        array_list_add_to_end(currently_used_inode_indexes, strdup(node->index));
+        if (node != NULL) {
+            array_list_add_to_end(currently_used_inode_indexes, strdup(node->index));
+        }
     }
 
     return currently_used_inode_indexes;
@@ -151,6 +153,7 @@ char* get_available_inode_index(struct emulator_info* emulator, char* type) {
         if (!list_contains_str(currently_used_inode_indexes, index_char)) {
             char* index_found = strdup(index_char);
             array_list_cleanup(currently_used_inode_indexes);
+            array_list_add_to_end(emulator->inodes_list, new_inode(strdup(index_found), strdup(type)));
             return index_found;
         }
     }
@@ -198,16 +201,6 @@ char* get_directory_data_path(struct emulator_info* emulator, char* index) {
 }
 
 void append_to_directory_data(struct emulator_info* emulator, char* index, char* file_name) {
-//    char directory_file_path[50] = "";
-//    strcat(directory_file_path, emulator->file_system_directory);
-//    strcat(directory_file_path, "/");
-//    strcat(directory_file_path, emulator->current_directory_inode_index);
-
-//    char inode_string[50] = "";
-//    strcat(inode_string, index);
-//    strcat(inode_string, " ");
-//    strcat(inode_string, file_name);
-//    strcat(inode_string, "\n");
     char* directory_file_path = get_directory_data_path(emulator, emulator->current_directory_inode_index);
     char* directory_data_line = to_directory_data_format(index, file_name);
 
@@ -220,16 +213,6 @@ void append_to_directory_data(struct emulator_info* emulator, char* index, char*
 }
 
 void append_inodes_list(struct emulator_info* emulator, char* index, char* type) {
-//    char inodes_list_file_name[50] = "";
-//    strcat(inodes_list_file_name, emulator->file_system_directory);
-//    strcat(inodes_list_file_name, "/");
-//    strcat(inodes_list_file_name, "inodes_list");
-
-//    char inode_string[50] = "";
-//    strcat(inode_string, index);
-//    strcat(inode_string, " ");
-//    strcat(inode_string, type);
-//    strcat(inode_string, "\n");
     char* inodes_list_file_name = get_inodes_list_path(emulator);
     char* inode_data_line = to_inode_data_format(index, type);
 
@@ -247,7 +230,7 @@ void create_data_file(struct emulator_info* emulator, char* index, char* type, c
     strcat(new_data_file_path, "/");
     strcat(new_data_file_path, index);
 
-    FILE* new_data_file = fopen(new_data_file_path, "wb");
+    FILE *new_data_file = fopen(new_data_file_path, "wb");
 
     if (strcmp(type, "f") == 0) {
         fwrite(if_file_name, 1, strlen(if_file_name), new_data_file);
@@ -267,15 +250,6 @@ void create_data_file(struct emulator_info* emulator, char* index, char* type, c
     fclose(new_data_file);
 }
 
-int strings_match(char* potentially_trailed_newline, char* string_b) {
-//    struct arraylist* split_data = split(potentially_trailed_newline, "\n");
-//    char* string_a = array_list_get_item(split_data, 0);
-
-    int result = strcmp(potentially_trailed_newline, string_b) == 0;
-//    array_list_cleanup(split_data);
-    return result;
-}
-
 void remove_line_x_from_file(char* file_name, char* line_to_remove) {
     FILE* original_file = fopen(file_name, "r");
 
@@ -293,7 +267,7 @@ void remove_line_x_from_file(char* file_name, char* line_to_remove) {
             continue;
         }
 
-        if (strings_match(line_buffer, line_to_remove)) {
+        if (strcmp(line_buffer, line_to_remove) == 0) {
             continue; // do not write the line to remove to the new file
         }
 
@@ -324,7 +298,6 @@ void change_directory(struct emulator_info* emulator, char* to_directory_name) {
 }
 
 void list_directory(struct emulator_info* emulator) {
-    // TODO: this is not accurate for listing the CORREct names of files (direcotires works fine)
     struct arraylist* current_directory_contents =
             get_directory_contents(emulator, emulator->current_directory_inode_index);
     for (int i = 0; i < current_directory_contents->number_of_items; i++) {
@@ -349,8 +322,6 @@ void create_directory(struct emulator_info* emulator, char* file_name) {
     append_inodes_list(emulator, next_available_inode_index, "d");
     create_data_file(emulator, next_available_inode_index, "d", NULL);
 
-    array_list_add_to_end(emulator->inodes_list, new_inode(strdup(next_available_inode_index), strdup("d")));
-
     free(next_available_inode_index);
 }
 
@@ -367,8 +338,6 @@ void touch_file(struct emulator_info* emulator, char* file_name) {
     append_to_directory_data(emulator, next_available_inode_index, file_name); // adds to current directory file
     append_inodes_list(emulator, next_available_inode_index, "f");
     create_data_file(emulator, next_available_inode_index, "f", file_name);
-
-    array_list_add_to_end(emulator->inodes_list, new_inode(strdup(next_available_inode_index), strdup("f")));
 
     free(next_available_inode_index);
 }
@@ -412,39 +381,73 @@ void remove_file_or_directory(struct emulator_info* emulator, char* file_name) {
 }
 
 void invalid_syntax(char* root_command_name) {
-//    if (strcmp(root_command_name, "cd") == 0) {
-//
-//    } else if (strcmp(root_command_name, "mkdir") == 0) {
-//
-//    } else if (strcmp(root_command_name, "touch") == 0) {
-//
-//    } else if (strcmp(root_command_name, "rm") == 0) {
-//
-//    }
-    printf("Invalid syntax\n");
+    if (strcmp(root_command_name, "cd") == 0) {
+        printf("usage: cd directory\n");
+    } else if (strcmp(root_command_name, "mkdir") == 0) {
+        printf("usage: mkdir directory\n");
+    } else if (strcmp(root_command_name, "touch") == 0) {
+        printf("usage: touch file\n");
+    } else if (strcmp(root_command_name, "rm") == 0) {
+        printf("usage: rm file\n");
+    } else if (strcmp(root_command_name, "exit") == 0) {
+        return;
+    } else {
+        printf("command not found: %s\n", root_command_name);
+    }
 }
 
 int check_command(struct arraylist* command_words, char* root_command_name, int intended_number_of_arguments) {
     if (strcmp(root_command_name, (char*) array_list_get_item(command_words, 0)) == 0) {
         if ((command_words->number_of_items - 1) == intended_number_of_arguments) {
             return 1;
-        } else {
-            invalid_syntax(root_command_name);
         }
     }
     return 0;
 }
 
+int verify_inode_0(struct emulator_info* emulator) {
+    // check for fs/0 directory
+    char* inode_0_data_directory_path = get_directory_data_path(emulator, "0");
+    FILE* inode_data_directory = fopen(inode_0_data_directory_path, "r");
+    if (inode_data_directory == NULL) {
+        free(inode_0_data_directory_path);
+        fclose(inode_data_directory);
+        return 0;
+    }
+
+    // check for index 0 in inodes_list
+    struct arraylist* currently_used_indexes = get_all_currently_used_inode_indexes(emulator);
+    for (int i = 0; i < currently_used_indexes->number_of_items; i++) {
+        char* index = array_list_get_item(currently_used_indexes, i);
+        if (strcmp(index, "0") == 0) {
+            array_list_cleanup(currently_used_indexes);
+            free(inode_0_data_directory_path);
+            fclose(inode_data_directory);
+            return 1;
+        }
+    }
+
+    array_list_cleanup(currently_used_indexes);
+    free(inode_0_data_directory_path);
+    fclose(inode_data_directory);
+    return 0;
+}
+
 void emulate_shell(struct emulator_info* emulator) {
+    if (!verify_inode_0(emulator)) { // an issue with inode 0
+        printf("inode 0 not found or properly created, exiting\n");
+        return;
+    }
 
     char command_sentence[100] = ""; // a "command sentence" is "cd virtual_file_system" for example
 
-    // TODO: make sure when it begins at index 0 it works properly (see Canvas Req 4)
-
-    while (strcmp(command_sentence, "exit") != 0) { // TODO: also support EOF / CtrlD or smth like that
+    while (strcmp(command_sentence, "exit") != 0) {
         printf("cpmustang21@unix1:~ $ ");
 
-        fgets(command_sentence, 100, stdin);
+        if (fgets(command_sentence, 100, stdin) == 0) { // EOF ; ^D ; exit
+            break;
+        }
+
         command_sentence[strcspn(command_sentence, "\n")] = 0;
         struct arraylist* command_words = split(command_sentence, " ");
 
@@ -459,7 +462,9 @@ void emulate_shell(struct emulator_info* emulator) {
         } else if (check_command(command_words, "rm", 1)) {
             remove_file_or_directory(emulator, (char *) array_list_get_item(command_words, 1));
         } else {
-//            invalid_syntax();
+            if (command_words->number_of_items >= 1) {
+                invalid_syntax(array_list_get_item(command_words, 0));
+            }
         }
         array_list_cleanup(command_words);
     }

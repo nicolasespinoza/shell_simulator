@@ -40,4 +40,5 @@ void array_list_cleanup(struct arraylist* list) {
     }
     free(list->data);
     free(list);
+
 }
