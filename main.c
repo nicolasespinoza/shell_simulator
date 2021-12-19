@@ -3,17 +3,7 @@
 #include <string.h>
 #include "util/array_list.h"
 #include "util/toolkit.h"
-#include "emulator.h"
-
-struct inode* new_inode(char* index, char* type) {
-    struct inode* node = malloc(sizeof(struct inode));
-    node->index = index;
-    node->type = type;
-    return node;
-}
-
-// make helper function clear inodes_list arraylist with node items inside. You just need to free the "type" part of
-// the struct because that uses strdup
+#include "emulator_info.h"
 
 struct inode* inode_from_line(char* line, int line_number, int max_number_of_inodes) {
     struct arraylist* split_data = split(line, " ");
@@ -72,7 +62,7 @@ struct arraylist* parse_inodes_list(char* file_system_directory, int max_number_
     return inodes_list;
 }
 
-void emulator_cleanup(struct emulator* emulator) {
+void emulator_cleanup(struct emulator_info* emulator) {
     // Clean up inodes_list
     struct arraylist* inodes_list = emulator->inodes_list;
     for (int i = 0; i < inodes_list->number_of_items; i++) {
@@ -83,7 +73,6 @@ void emulator_cleanup(struct emulator* emulator) {
     array_list_cleanup(inodes_list);
 
     free(emulator->current_directory_inode_index);
-    free(emulator);
 }
 
 int main(int number_of_arguments, char* arguments[]) {
@@ -91,13 +80,12 @@ int main(int number_of_arguments, char* arguments[]) {
         int max_number_of_inodes = string_to_int(arguments[1]);
         char* file_system_directory = validate_file_exists(arguments[2]);
 
-        struct emulator* emulator = emulator_object_create(file_system_directory, max_number_of_inodes);
-        emulator->total_supported_nodes = max_number_of_inodes;
-        emulator->file_system_directory = file_system_directory;
-        emulator->inodes_list = parse_inodes_list(file_system_directory, max_number_of_inodes);
-
+        struct emulator_info* emulator = emulator_object_create(parse_inodes_list(file_system_directory, max_number_of_inodes),
+                file_system_directory, max_number_of_inodes);
         emulate_shell(emulator);
         emulator_cleanup(emulator);
+
+        free(emulator);
     } else {
         printf("Syntax: ./a.out <max number of inodes> <file system directory>\n");
     }

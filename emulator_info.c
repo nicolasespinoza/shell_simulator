@@ -1,25 +1,26 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include "util/toolkit.h"
 #include "util/array_list.h"
-#include "emulator.h"
+#include "emulator_info.h"
 
-// TODO: pretty sure you need to add more checks about whether something is a directory or a file
-
-struct emulator* emulator_object_create() {
-//    struct emulator* emulator = malloc(sizeof(struct emulator*));
-    struct emulator* emulator;
-    emulator = malloc(sizeof(struct emulator*));
-    emulator->inodes_list = malloc(sizeof(struct arraylist)); // ABSOLUTELY NECESSARY
-    emulator->file_system_directory = NULL;
-    emulator->total_supported_nodes = 0;
+struct emulator_info* emulator_object_create(struct arraylist* inodes_list, char* file_system_directory, int total_supported_nodes) {
+    struct emulator_info* emulator = malloc(sizeof(struct emulator_info));
+    emulator->inodes_list = inodes_list;
+    emulator->file_system_directory = file_system_directory;
+    emulator->total_supported_nodes = total_supported_nodes;
     emulator->current_directory_inode_index = strdup("0");
     return emulator;
 }
 
-// TODO: make some cleanup function free this memory
+struct inode* new_inode(char* index, char* type) {
+    struct inode* node = malloc(sizeof(struct inode));
+    node->index = index;
+    node->type = type;
+    return node;
+}
+
 struct file_node* create_file_node(char* file_name, char* index) {
     struct file_node *file_node = malloc(sizeof(struct file_node));
     file_node->file_name = strdup(file_name);
@@ -36,9 +37,7 @@ void file_node_array_list_cleanup(struct arraylist* list) {
     array_list_cleanup(list);
 }
 
-struct arraylist* get_directory_contents(struct emulator* emulator, char* inode_index) {
-    // do some sort of checking to make sure the index passed is for a directory?
-
+struct arraylist* get_directory_contents(struct emulator_info* emulator, char* inode_index) {
     struct arraylist* directory_contents = array_list_new(sizeof(struct file_node));
 
     char inode_file_path[50] = "";
@@ -72,27 +71,27 @@ struct arraylist* get_directory_contents(struct emulator* emulator, char* inode_
     return directory_contents;
 }
 
-int is_directory(struct emulator* emulator, char* index) {
+int is_directory(struct emulator_info* emulator, char* index) {
     for (int i = 0; i < emulator->inodes_list->number_of_items; i++) {
         struct inode* node = array_list_get_item(emulator->inodes_list, i);
-        if (strcmp(node->index, index) == 0 && strcmp(node->type, "f") == 0) {
+        if (strcmp(node->index, index) == 0 && strcmp(node->type, "d") == 0) {
             return 1;
         }
     }
     return 0;
 }
 
-char* file_name_to_index_from_current_directory(struct emulator* emulator, char* file_name, int only_directories) {
+char* file_name_to_index_from_current_directory(struct emulator_info* emulator, char* file_name, int only_directories) {
     struct arraylist* directory_contents = get_directory_contents(emulator, emulator->current_directory_inode_index);
 
     for (int i = 0; i < directory_contents->number_of_items; i++) {
         struct file_node* file_node = array_list_get_item(directory_contents, i);
         if (strcmp(file_node->file_name, file_name) == 0) {
-            char* file_node_index = strdup(file_node->index);
-            if (only_directories && is_directory(emulator, file_node_index)) {
+            if (only_directories && !is_directory(emulator, file_node->index)) {
                 file_node_array_list_cleanup(directory_contents);
                 return "-2";
             }
+            char* file_node_index = strdup(file_node->index);
             file_node_array_list_cleanup(directory_contents);
             return file_node_index;
         }
@@ -101,20 +100,23 @@ char* file_name_to_index_from_current_directory(struct emulator* emulator, char*
     return "-1";
 }
 
-int file_exists(struct emulator* emulator, char* file_name) {
+int file_exists(struct emulator_info* emulator, char* file_name) {
     char* if_existing_file_index = file_name_to_index_from_current_directory(emulator, file_name, 0);
-    int result = strcmp(if_existing_file_index, "-1") != 0;
-    free(if_existing_file_index);
-    return result;
+    if (strcmp(if_existing_file_index, "-1") != 0 && strcmp(if_existing_file_index, "-2") != 0) {
+        int result = strcmp(if_existing_file_index, "-1") != 0;
+        free(if_existing_file_index);
+        return result;
+    }
+    return strcmp(if_existing_file_index, "-1") != 0;
 }
 
-struct arraylist* get_all_currently_used_inode_indexes(struct emulator* emulator) {
+struct arraylist* get_all_currently_used_inode_indexes(struct emulator_info* emulator) {
     struct arraylist* currently_used_inode_indexes = array_list_new(sizeof(char*));
     struct arraylist* inodes_list = emulator->inodes_list;
 
     for (int i = 0; i < inodes_list->number_of_items; i++) {
         struct inode* node = array_list_get_item(emulator->inodes_list, i);
-        array_list_add_to_end(currently_used_inode_indexes, node->index);
+        array_list_add_to_end(currently_used_inode_indexes, strdup(node->index));
     }
 
     return currently_used_inode_indexes;
@@ -130,13 +132,14 @@ int list_contains_str(struct arraylist* list, char* string) {
     return 0;
 }
 
-char* get_available_inode_index(struct emulator* emulator, char* type) {
+char* get_available_inode_index(struct emulator_info* emulator, char* type) {
     struct arraylist* inodes_list = emulator->inodes_list;
     for (int i = 0; i < inodes_list->number_of_items; i++) {
         struct inode* node = array_list_get_item(inodes_list, i);
         if (strcmp(node->type, "N") == 0) {
-            node->type = type; // previously deleted inode will not be used
-            return node->index;
+            free(node->type);
+            node->type = strdup(type); // previously deleted inode will not be used
+            return strdup(node->index);
         }
     }
 
@@ -146,54 +149,105 @@ char* get_available_inode_index(struct emulator* emulator, char* type) {
         sprintf(index_char, "%d", i);
 
         if (!list_contains_str(currently_used_inode_indexes, index_char)) {
-            return strdup(index_char);
+            char* index_found = strdup(index_char);
+            array_list_cleanup(currently_used_inode_indexes);
+            return index_found;
         }
     }
+    array_list_cleanup(currently_used_inode_indexes);
     printf("operation failed: max inode limit reached\n");
     return "-1";
 }
 
-void append_to_directory_data(struct emulator* emulator, char* index, char* file_name) {
-    char directory_file_path[50] = "";
-    strcat(directory_file_path, emulator->file_system_directory);
-    strcat(directory_file_path, "/");
-    strcat(directory_file_path, emulator->current_directory_inode_index);
+char* to_inode_data_format(char* index, char* type) {
+    char inode_data_line[50] = "";
+    strcat(inode_data_line, index);
+    strcat(inode_data_line, " ");
+    strcat(inode_data_line, type);
+    strcat(inode_data_line, "\n");
 
-    char inode_string[50] = "";
-    strcat(inode_string, index);
-    strcat(inode_string, " ");
-    strcat(inode_string, file_name);
-    strcat(inode_string, "\n");
-
-    FILE* directory_data = fopen(directory_file_path, "a");
-    fwrite(inode_string, 1, strlen(inode_string), directory_data);
-    fclose(directory_data);
+    return strdup(inode_data_line);
 }
 
-void append_inodes_list(struct emulator* emulator, char* index, char* type) {
+char* to_directory_data_format(char* index, char* file_name) {
+    char directory_data_line[50] = "";
+    strcat(directory_data_line, index);
+    strcat(directory_data_line, " ");
+    strcat(directory_data_line, file_name);
+    strcat(directory_data_line, "\n");
+
+    return strdup(directory_data_line);
+}
+
+char* get_inodes_list_path(struct emulator_info* emulator) {
     char inodes_list_file_name[50] = "";
     strcat(inodes_list_file_name, emulator->file_system_directory);
     strcat(inodes_list_file_name, "/");
     strcat(inodes_list_file_name, "inodes_list");
 
-    char inode_string[50] = "";
-    strcat(inode_string, index);
-    strcat(inode_string, " ");
-    strcat(inode_string, type);
-    strcat(inode_string, "\n");
+    return strdup(inodes_list_file_name);
+}
+
+char* get_directory_data_path(struct emulator_info* emulator, char* index) {
+    char directory_file_path[50] = "";
+    strcat(directory_file_path, emulator->file_system_directory);
+    strcat(directory_file_path, "/");
+    strcat(directory_file_path, index);
+
+    return strdup(directory_file_path);
+}
+
+void append_to_directory_data(struct emulator_info* emulator, char* index, char* file_name) {
+//    char directory_file_path[50] = "";
+//    strcat(directory_file_path, emulator->file_system_directory);
+//    strcat(directory_file_path, "/");
+//    strcat(directory_file_path, emulator->current_directory_inode_index);
+
+//    char inode_string[50] = "";
+//    strcat(inode_string, index);
+//    strcat(inode_string, " ");
+//    strcat(inode_string, file_name);
+//    strcat(inode_string, "\n");
+    char* directory_file_path = get_directory_data_path(emulator, emulator->current_directory_inode_index);
+    char* directory_data_line = to_directory_data_format(index, file_name);
+
+    FILE* directory_data = fopen(directory_file_path, "a");
+    fwrite(directory_data_line, 1, strlen(directory_data_line), directory_data);
+
+    free(directory_file_path);
+    free(directory_data_line);
+    fclose(directory_data);
+}
+
+void append_inodes_list(struct emulator_info* emulator, char* index, char* type) {
+//    char inodes_list_file_name[50] = "";
+//    strcat(inodes_list_file_name, emulator->file_system_directory);
+//    strcat(inodes_list_file_name, "/");
+//    strcat(inodes_list_file_name, "inodes_list");
+
+//    char inode_string[50] = "";
+//    strcat(inode_string, index);
+//    strcat(inode_string, " ");
+//    strcat(inode_string, type);
+//    strcat(inode_string, "\n");
+    char* inodes_list_file_name = get_inodes_list_path(emulator);
+    char* inode_data_line = to_inode_data_format(index, type);
 
     FILE* inodes_list_file = fopen(inodes_list_file_name, "a");
-    fwrite(inode_string, 1, strlen(inode_string), inodes_list_file);
+    fwrite(inode_data_line, 1, strlen(inode_data_line), inodes_list_file);
+
+    free(inode_data_line);
+    free(inodes_list_file_name);
     fclose(inodes_list_file);
 }
 
-void create_data_file(struct emulator* emulator, char* index, char* type, char* if_file_name) {
-    char new_data_file_oath[50] = "";
-    strcat(new_data_file_oath, emulator->file_system_directory);
-    strcat(new_data_file_oath, "/");
-    strcat(new_data_file_oath, index);
+void create_data_file(struct emulator_info* emulator, char* index, char* type, char* if_file_name) {
+    char new_data_file_path[50] = "";
+    strcat(new_data_file_path, emulator->file_system_directory);
+    strcat(new_data_file_path, "/");
+    strcat(new_data_file_path, index);
 
-    FILE* new_data_file = fopen(new_data_file_oath, "wb");
+    FILE* new_data_file = fopen(new_data_file_path, "wb");
 
     if (strcmp(type, "f") == 0) {
         fwrite(if_file_name, 1, strlen(if_file_name), new_data_file);
@@ -214,11 +268,11 @@ void create_data_file(struct emulator* emulator, char* index, char* type, char* 
 }
 
 int strings_match(char* potentially_trailed_newline, char* string_b) {
-    struct arraylist* split_data =  split(potentially_trailed_newline, "\n");
-    char* string_a = array_list_get_item(split_data, 0);
+//    struct arraylist* split_data = split(potentially_trailed_newline, "\n");
+//    char* string_a = array_list_get_item(split_data, 0);
 
-    int result = strcmp(string_a, string_b) == 0;
-    array_list_cleanup(split_data);
+    int result = strcmp(potentially_trailed_newline, string_b) == 0;
+//    array_list_cleanup(split_data);
     return result;
 }
 
@@ -226,8 +280,8 @@ void remove_line_x_from_file(char* file_name, char* line_to_remove) {
     FILE* original_file = fopen(file_name, "r");
 
     char file_new_copy_path[50] = "";
-    strcat(file_new_copy_path, "_temp_emu");
     strcat(file_new_copy_path, file_name);
+    strcat(file_new_copy_path, "_temp_emu");
 
     FILE* file_new_copy = fopen(file_new_copy_path, "wb");
 
@@ -254,7 +308,7 @@ void remove_line_x_from_file(char* file_name, char* line_to_remove) {
     rename(file_new_copy_path, file_name);
 }
 
-void change_directory(struct emulator* emulator, char* to_directory_name) {
+void change_directory(struct emulator_info* emulator, char* to_directory_name) {
     char* to_directory_index = file_name_to_index_from_current_directory(emulator, to_directory_name, 1);
 
     if (strcmp(to_directory_index, "-1") == 0) {
@@ -269,7 +323,7 @@ void change_directory(struct emulator* emulator, char* to_directory_name) {
     emulator->current_directory_inode_index = to_directory_index;
 }
 
-void list_directory(struct emulator* emulator) {
+void list_directory(struct emulator_info* emulator) {
     // TODO: this is not accurate for listing the CORREct names of files (direcotires works fine)
     struct arraylist* current_directory_contents =
             get_directory_contents(emulator, emulator->current_directory_inode_index);
@@ -280,7 +334,7 @@ void list_directory(struct emulator* emulator) {
     file_node_array_list_cleanup(current_directory_contents);
 }
 
-void create_directory(struct emulator* emulator, char* file_name) {
+void create_directory(struct emulator_info* emulator, char* file_name) {
     if (file_exists(emulator, file_name)) {
         printf("mkdir: %s: File exists\n", file_name);
         return;
@@ -294,9 +348,13 @@ void create_directory(struct emulator* emulator, char* file_name) {
     append_to_directory_data(emulator, next_available_inode_index, file_name);
     append_inodes_list(emulator, next_available_inode_index, "d");
     create_data_file(emulator, next_available_inode_index, "d", NULL);
+
+    array_list_add_to_end(emulator->inodes_list, new_inode(strdup(next_available_inode_index), strdup("d")));
+
+    free(next_available_inode_index);
 }
 
-void touch_file(struct emulator* emulator, char* file_name) {
+void touch_file(struct emulator_info* emulator, char* file_name) {
     if (file_exists(emulator, file_name)) {
         return;
     }
@@ -309,15 +367,48 @@ void touch_file(struct emulator* emulator, char* file_name) {
     append_to_directory_data(emulator, next_available_inode_index, file_name); // adds to current directory file
     append_inodes_list(emulator, next_available_inode_index, "f");
     create_data_file(emulator, next_available_inode_index, "f", file_name);
+
+    array_list_add_to_end(emulator->inodes_list, new_inode(strdup(next_available_inode_index), strdup("f")));
+
+    free(next_available_inode_index);
 }
 
-void remove_directory(struct emulator* emulator, char* file_name) {
+void remove_file_or_directory(struct emulator_info* emulator, char* file_name) {
     if (!file_exists(emulator, file_name)) {
-        printf("rm: %s: No such file or director", file_name);
+        printf("rm: %s: No such file or directory\n", file_name);
         return;
     }
-    // remove the file
 
+    char* file_to_remove_index = file_name_to_index_from_current_directory(emulator, file_name, 0);
+    int is_file_a_directory = is_directory(emulator, file_to_remove_index);
+    char* type = is_file_a_directory ? "d" : "f";
+
+    // Remove file entry from directory data fs/<current index>
+    char* parent_directory_file_path = get_directory_data_path(emulator, emulator->current_directory_inode_index);
+    char* directory_data_line = to_directory_data_format(file_to_remove_index, file_name);
+    remove_line_x_from_file(parent_directory_file_path, directory_data_line);
+
+    // Remove the fs/<index> directory
+    char* file_to_remove_data_directory = get_directory_data_path(emulator, file_to_remove_index);
+    file_to_remove_data_directory[strcspn(file_to_remove_data_directory, "\n")] = 0; // remove trailing newline character
+    remove(file_to_remove_data_directory);
+
+    free(parent_directory_file_path);
+    free(directory_data_line);
+    free(file_to_remove_data_directory);
+
+    // Remove file entry from inodes_list
+    char* inodes_list_file_name = get_inodes_list_path(emulator);
+    char* inode_data_line = to_inode_data_format(file_to_remove_index, type);
+    remove_line_x_from_file(inodes_list_file_name, inode_data_line);
+
+    free(inodes_list_file_name);
+    free(inode_data_line);
+
+    struct inode* node = array_list_get_item(emulator->inodes_list, string_to_int(file_to_remove_index));
+    free(node->type);
+    node->type = strdup("N");
+    free(file_to_remove_index);
 }
 
 void invalid_syntax(char* root_command_name) {
@@ -344,9 +435,7 @@ int check_command(struct arraylist* command_words, char* root_command_name, int 
     return 0;
 }
 
-void emulate_shell(struct emulator* emulator) {
-
-//    remove_line_x_from_file("test.txt", "3 YEAHBOI");
+void emulate_shell(struct emulator_info* emulator) {
 
     char command_sentence[100] = ""; // a "command sentence" is "cd virtual_file_system" for example
 
@@ -354,7 +443,6 @@ void emulate_shell(struct emulator* emulator) {
 
     while (strcmp(command_sentence, "exit") != 0) { // TODO: also support EOF / CtrlD or smth like that
         printf("cpmustang21@unix1:~ $ ");
-//        fflush(stdout); // causes things not to work on the linux servers for some reason
 
         fgets(command_sentence, 100, stdin);
         command_sentence[strcspn(command_sentence, "\n")] = 0;
@@ -369,7 +457,7 @@ void emulate_shell(struct emulator* emulator) {
         } else if (check_command(command_words, "touch", 1)) {
             touch_file(emulator, (char *) array_list_get_item(command_words, 1));
         } else if (check_command(command_words, "rm", 1)) {
-            remove_directory(emulator, (char*) array_list_get_item(command_words, 1));
+            remove_file_or_directory(emulator, (char *) array_list_get_item(command_words, 1));
         } else {
 //            invalid_syntax();
         }
