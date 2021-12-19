@@ -9,7 +9,6 @@ struct inode* new_inode(char* index, char* type) {
     struct inode* node = malloc(sizeof(struct inode));
     node->index = index;
     node->type = type;
-
     return node;
 }
 
@@ -58,6 +57,10 @@ struct arraylist* parse_inodes_list(char* file_system_directory, int max_number_
     while (getline(&line_buffer, &line_buffer_size, file) > 0) {
         line_number++;
 
+        if (strlen(line_buffer) == 1) { // ignore blank lines
+            continue;
+        }
+
         struct inode* node = inode_from_line(line_buffer, line_number, max_number_of_inodes);
         if (node != NULL) {
             array_list_add_to_end(inodes_list, node);
@@ -69,12 +72,18 @@ struct arraylist* parse_inodes_list(char* file_system_directory, int max_number_
     return inodes_list;
 }
 
-void inodes_list_cleanup(struct arraylist* inodes_list) {
+void emulator_cleanup(struct emulator* emulator) {
+    // Clean up inodes_list
+    struct arraylist* inodes_list = emulator->inodes_list;
     for (int i = 0; i < inodes_list->number_of_items; i++) {
         struct inode* node = array_list_get_item(inodes_list, i);
+        free(node->index);
         free(node->type);
     }
     array_list_cleanup(inodes_list);
+
+    free(emulator->current_directory_inode_index);
+    free(emulator);
 }
 
 int main(int number_of_arguments, char* arguments[]) {
@@ -82,14 +91,13 @@ int main(int number_of_arguments, char* arguments[]) {
         int max_number_of_inodes = string_to_int(arguments[1]);
         char* file_system_directory = validate_file_exists(arguments[2]);
 
-        struct emulator* emulator = emulator_object_create();
-        emulator->current_directory_inode_index = "0";
-        emulator->inodes_list = parse_inodes_list(file_system_directory, max_number_of_inodes);
-        emulator->file_system_directory = file_system_directory;
+        struct emulator* emulator = emulator_object_create(file_system_directory, max_number_of_inodes);
         emulator->total_supported_nodes = max_number_of_inodes;
+        emulator->file_system_directory = file_system_directory;
+        emulator->inodes_list = parse_inodes_list(file_system_directory, max_number_of_inodes);
 
         emulate_shell(emulator);
-//        inodes_list_cleanup(emulator->inodes_list); // maybe just make cleanup_emulator function?
+        emulator_cleanup(emulator);
     } else {
         printf("Syntax: ./a.out <max number of inodes> <file system directory>\n");
     }

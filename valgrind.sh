@@ -1,2 +1,2 @@
 gcc *.c util/*.c -std=c99
-valgrind ./a.out 4 fs
+valgrind --leak-check=full ./a.out 10 fs
