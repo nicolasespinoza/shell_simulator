@@ -3,6 +3,10 @@
 
 # CMake
 cmake-build-debug/
+CMakeLists.txt
+
+# Other
+valgrind.sh
 
 # Prerequisites
 *.d
